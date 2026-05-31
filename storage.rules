@@ -1,0 +1,43 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper to check auth
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isCompanyMember(companyId) {
+      return isAuthenticated()
+        && (
+          // Preferred: tenant claim set via Firebase Auth custom claims.
+          request.auth.token.companyId == companyId
+          // DIY fallback: single-tenant user where companyId is uid.
+          || request.auth.uid == companyId
+        );
+    }
+
+    // User avatars
+    match /users/{userId}/avatar.jpg {
+      allow read: if true;
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Client Documents (Sensitive)
+    match /companies/{companyId}/clients/{clientId}/documents/{fileName} {
+      allow read: if isCompanyMember(companyId);
+      allow write: if isCompanyMember(companyId)
+                   && request.resource.size < 10 * 1024 * 1024 // 10MB limit
+                   && request.resource.contentType.matches('application/pdf|image/.*');
+    }
+
+    // DIY Dispute Packets (Sensitive) — stored per user under tenant.
+    match /companies/{companyId}/users/{userId}/disputes/{disputeId}/packets/{fileName} {
+      allow read: if isCompanyMember(companyId) && request.auth.uid == userId;
+      allow write: if isCompanyMember(companyId)
+                   && request.auth.uid == userId
+                   && request.resource.size < 10 * 1024 * 1024
+                   && request.resource.contentType.matches('application/pdf');
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "name": "creditfix-ai-crm",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:vercel": "npx vercel dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:rules:firestore": "firebase emulators:exec --only firestore \"node --test tests/firestore.rules.test.mjs\"",
+    "test:rules:storage": "firebase emulators:exec --only firestore,storage \"node --test tests/storage.rules.test.mjs\"",
+    "test:security": "npm run test:rules:firestore && npm run test:rules:storage",
+    "audit:prod": "npm audit --omit=dev --audit-level=critical",
+    "check:firebase:ready": "node scripts/check-firebase-deploy-readiness.mjs",
+    "seed:template-experiment": "node scripts/seed-template-experiment.mjs"
+  },
+  "dependencies": {
+    "@google/genai": "1.47.0",
+    "firebase": "^10.7.1",
+    "firebase-admin": "^12.0.0",
+    "jspdf": "^4.2.1",
+    "lucide-react": "0.300.0",
+    "pdf-parse": "^2.4.5",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.20.0",
+    "recharts": "^2.10.0"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "autoprefixer": "^10.4.16",
+    "firebase-tools": "^15.12.0",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.3.5",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.0"
+  },
+  "overrides": {
+    "react": "$react",
+    "react-dom": "$react-dom"
+  }
+}

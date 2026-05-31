@@ -1,0 +1,267 @@
+
+import React, { useState, useEffect } from 'react';
+import { 
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, 
+  PieChart, Pie, Cell, Legend, BarChart, Bar
+} from 'recharts';
+import { 
+  TrendingUp, TrendingDown, CheckCircle2, Clock, AlertTriangle, 
+  Sparkles, ArrowUp, Activity, Calendar, Shield
+} from 'lucide-react';
+import { generateExecutiveSummary } from '../services/geminiService';
+import { useUser } from '../context/UserContext';
+import { getClientDeliveries, getClientDisputes, getClientScores, getTemplateExperiments, getTemplateOutcomeSummary, tenantCompanyId } from '../services/firebaseService';
+import { canUseProgressTracking } from '../services/access';
+import TierUpgradePrompt from '../components/TierUpgradePrompt';
+import { TemplateExperiment } from '../types';
+import { featureFlags } from '../services/featureFlags';
+
+const Reports: React.FC = () => {
+  const [aiSummary, setAiSummary] = useState<string>('');
+  const [loadingSummary, setLoadingSummary] = useState(false);
+  const [experiments, setExperiments] = useState<TemplateExperiment[]>([]);
+  const [variantPerformance, setVariantPerformance] = useState<{ variantId: string; total: number; deletedRate: number }[]>([]);
+  const [activeDisputesCount, setActiveDisputesCount] = useState<number>(0);
+  const [itemsDeletedCount, setItemsDeletedCount] = useState<number>(0);
+  const [scoreHistory, setScoreHistory] = useState<{ date: string; score: number }[]>([]);
+  const { user } = useUser();
+  const progressAllowed = canUseProgressTracking(user);
+
+  useEffect(() => {
+    if (!canUseProgressTracking(user)) return;
+    if (user.id) {
+      const companyId = tenantCompanyId(user);
+      void loadMetrics(companyId, user.id);
+    }
+    // Only load summary if there is meaningful data
+    if (user.creditScore.equifax > 0) {
+      loadPersonalSummary();
+    }
+    if (featureFlags.templateExperiments && user.id) {
+      const companyId = tenantCompanyId(user);
+      void getTemplateExperiments(companyId).then(setExperiments).catch(() => setExperiments([]));
+      void getTemplateOutcomeSummary(companyId).then(setVariantPerformance).catch(() => setVariantPerformance([]));
+    }
+  }, [user]);
+
+  const loadMetrics = async (companyId: string, clientId: string) => {
+    try {
+      const [disputes, deliveries, scores] = await Promise.all([
+        getClientDisputes(companyId, clientId),
+        getClientDeliveries(companyId, clientId),
+        getClientScores(companyId, clientId),
+      ]);
+      void deliveries;
+      const active = disputes.filter((d: any) => d.overallStatus !== 'CLOSED').length;
+      setActiveDisputesCount(active);
+      setItemsDeletedCount((user.negativeItems || []).filter((i) => i.status === 'Deleted').length);
+      const history = (scores || []).map((s: any) => ({
+        date: String(s.capturedAt || s.createdAt || '').slice(0, 10) || 'unknown',
+        score: Number(s.score || 0),
+      })).filter((p) => p.score > 0);
+      setScoreHistory(history.slice(-24));
+    } catch {
+      setActiveDisputesCount(0);
+      setItemsDeletedCount((user.negativeItems || []).filter((i) => i.status === 'Deleted').length);
+      setScoreHistory([]);
+    }
+  };
+
+  const loadPersonalSummary = async () => {
+    if (!canUseProgressTracking(user)) return;
+    setLoadingSummary(true);
+    try {
+      const summary = await generateExecutiveSummary({
+        userType: 'DIY_CONSUMER',
+        startScore: user.creditScore.equifax, // Simplified logic for demo
+        currentScore: user.creditScore.equifax,
+        totalDeleted: 0,
+        timeframe: 'current'
+      });
+      setAiSummary(summary || "Welcome! Once you import your credit report, this AI coach will analyze your trends and suggest improvements.");
+    } catch (e) {
+      setAiSummary("Ready to analyze. Connect your credit report to begin tracking progress.");
+    }
+    setLoadingSummary(false);
+  };
+
+  if (!progressAllowed) {
+    return (
+      <div className="space-y-6 animate-fade-in pb-10">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-3">
+            <TrendingUp className="text-indigo-600 dark:text-indigo-400 w-8 h-8" />
+            My Progress Tracker
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">
+            Track your credit repair journey, score improvements, and dispute wins.
+          </p>
+        </div>
+        <TierUpgradePrompt
+          title="Progress tracking requires a subscription"
+          description="DIY Pro ($39/mo) or Agency ($99/mo) includes AI progress insights, unlimited disputes, and full credit report analysis."
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 animate-fade-in pb-10">
+      
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-3">
+            <TrendingUp className="text-indigo-600 dark:text-indigo-400 w-8 h-8" />
+            My Progress Tracker
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">
+            Track your credit repair journey, score improvements, and dispute wins.
+          </p>
+        </div>
+      </div>
+
+      {/* AI Insight */}
+      <div className="bg-gradient-to-r from-indigo-600 to-purple-700 rounded-xl p-6 text-white shadow-lg relative overflow-hidden">
+        <div className="flex items-start gap-4 z-10 relative">
+          <div className="p-3 bg-white/20 backdrop-blur-sm rounded-lg shadow-sm">
+            <Sparkles className="w-6 h-6 text-yellow-300" />
+          </div>
+          <div>
+            <h3 className="font-bold text-lg mb-1 flex items-center">
+              AI Coach Insight
+              {loadingSummary && <span className="ml-2 text-xs font-normal opacity-70 animate-pulse">Analyzing...</span>}
+            </h3>
+            <p className="text-indigo-100 text-sm leading-relaxed max-w-3xl">
+              {aiSummary || "Welcome! Once you import your credit report, this AI coach will analyze your trends and suggest improvements."}
+            </p>
+          </div>
+        </div>
+        <div className="absolute -bottom-10 -right-10 w-64 h-64 bg-white opacity-10 rounded-full blur-3xl" />
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white dark:bg-[#0A0A0A] p-5 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2 mb-2 text-slate-500 dark:text-slate-400">
+            <CheckCircle2 className="w-4 h-4 text-green-500" />
+            <span className="text-xs font-bold uppercase">Items Deleted</span>
+          </div>
+          <p className="text-2xl font-bold text-slate-800 dark:text-white">{itemsDeletedCount}</p>
+          <p className="text-xs text-slate-400 mt-1">Total removed</p>
+        </div>
+
+        <div className="bg-white dark:bg-[#0A0A0A] p-5 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2 mb-2 text-slate-500 dark:text-slate-400">
+            <Activity className="w-4 h-4 text-blue-500" />
+            <span className="text-xs font-bold uppercase">Active Disputes</span>
+          </div>
+          <p className="text-2xl font-bold text-slate-800 dark:text-white">{activeDisputesCount}</p>
+          <p className="text-xs text-slate-400 mt-1">In progress</p>
+        </div>
+
+        <div className="bg-white dark:bg-[#0A0A0A] p-5 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2 mb-2 text-slate-500 dark:text-slate-400">
+            <Shield className="w-4 h-4 text-purple-500" />
+            <span className="text-xs font-bold uppercase">Current Score</span>
+          </div>
+          <p className="text-2xl font-bold text-slate-800 dark:text-white">{user.creditScore.experian || '-'}</p>
+          <p className="text-xs text-green-500 mt-1 font-bold">Experian</p>
+        </div>
+
+        <div className="bg-white dark:bg-[#0A0A0A] p-5 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2 mb-2 text-slate-500 dark:text-slate-400">
+            <Calendar className="w-4 h-4 text-orange-500" />
+            <span className="text-xs font-bold uppercase">Est. Completion</span>
+          </div>
+          <p className="text-2xl font-bold text-slate-800 dark:text-white">
+            {activeDisputesCount > 0 ? `${Math.min(90, 30 + activeDisputesCount * 15)}d` : '-'}
+          </p>
+          <p className="text-xs text-slate-400 mt-1">{activeDisputesCount > 0 ? 'Estimated' : 'No active disputes'}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6">
+        
+        {/* Score History Chart */}
+        <div className="bg-white dark:bg-[#0A0A0A] p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="font-bold text-slate-800 dark:text-white">Score History</h3>
+          </div>
+          {scoreHistory.length > 1 ? (
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={scoreHistory}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                  <YAxis domain={[300, 850]} />
+                  <RechartsTooltip />
+                  <Line type="monotone" dataKey="score" stroke="#4f46e5" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="h-72 flex items-center justify-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900">
+              <div className="text-center text-slate-400">
+                <TrendingUp className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                <p>No history data available yet.</p>
+                <p className="text-xs mt-1">Connect a provider and sync to start tracking scores.</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {featureFlags.templateExperiments && (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white dark:bg-[#0A0A0A] p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
+          <h3 className="font-bold text-slate-800 dark:text-white mb-4">Template Experiment Performance</h3>
+          {variantPerformance.length > 0 ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={variantPerformance}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="variantId" />
+                  <YAxis />
+                  <RechartsTooltip />
+                  <Bar dataKey="deletedRate" fill="#f97316" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">No experiment outcomes yet. Launch a template experiment to track delete rates.</p>
+          )}
+        </div>
+
+        <div className="bg-white dark:bg-[#0A0A0A] p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
+          <h3 className="font-bold text-slate-800 dark:text-white mb-4">Active Template Experiments</h3>
+          <div className="space-y-3">
+            {experiments.length === 0 && (
+              <p className="text-sm text-slate-500">No experiments configured yet.</p>
+            )}
+            {experiments.slice(0, 6).map((experiment) => (
+              <div key={experiment.id} className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
+                <div className="flex items-center justify-between">
+                  <p className="font-semibold text-slate-800 dark:text-white text-sm">{experiment.name}</p>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                    experiment.status === 'RUNNING' ? 'bg-green-900/30 text-green-500' :
+                    experiment.status === 'COMPLETED' ? 'bg-blue-900/30 text-blue-500' :
+                    'bg-slate-200 dark:bg-slate-800 text-slate-500'
+                  }`}>
+                    {experiment.status}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Goal: {experiment.goalMetric} - Variants: {experiment.variants.length}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      )}
+    </div>
+  );
+};
+
+export default Reports;
